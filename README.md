@@ -36,6 +36,29 @@ FirstFew.track("onboarding_completed")
 FirstFew.track("pro_purchased", value: 9.99, currency: "USD")
 ```
 
+If the app has its own account system, bind your user id after login ("identify") —
+the FirstFew console becomes searchable by your ids and devices of the same
+account are grouped:
+
+```swift
+FirstFew.identify("your-account-id")   // after login / account switch
+FirstFew.identify(nil)                 // on logout
+```
+
+For paid apps, pass the FirstFew user id as `appAccountToken` when starting a
+StoreKit 2 purchase — App Store Server Notifications then carry it on every
+transaction (first purchase, renewals, refunds), so revenue ties back to the
+user and to the Search Ads keyword that acquired them:
+
+```swift
+let result = try await product.purchase(options: [
+    .appAccountToken(FirstFew.appAccountToken ?? UUID())
+])
+```
+
+If your purchases already pass your own account UUID as `appAccountToken`, keep
+it — just make sure the same id is bound via `FirstFew.identify`.
+
 Notes:
 
 - The token is **write-only**: it can submit data, never read anything back.
