@@ -48,6 +48,28 @@ public final class FirstFew {
         AttributionReporter.onResult(completion)
     }
 
+    /// The stable FirstFew user id (a lowercase UUID string, kept in the Keychain).
+    /// This is the same id sent with every event and with attribution reporting.
+    /// `nil` only before the very first `configure` call of the app's first launch.
+    public static var userId: String? {
+        Identity.existingUserID()
+    }
+
+    /// The user id as a `UUID`, ready to be passed as StoreKit's `appAccountToken`
+    /// when starting a purchase:
+    /// ```swift
+    /// let result = try await product.purchase(options: [
+    ///     .appAccountToken(FirstFew.appAccountToken ?? UUID())
+    /// ])
+    /// ```
+    /// App Store Server Notifications then carry this token on every transaction —
+    /// first purchase, renewals, refunds — which lets FirstFew tie revenue to the
+    /// user and, through Search Ads attribution, to the exact keyword that
+    /// acquired them (per-keyword ROAS). Strongly recommended for any paid app.
+    public static var appAccountToken: UUID? {
+        Identity.existingUserID().flatMap(UUID.init(uuidString:))
+    }
+
     /// Report a business event. Use the snake_case id defined in FirstFew event
     /// management. Composed events are derived server-side — never send them.
     /// Pass `value`/`currency` only for events with payment semantics.
@@ -83,6 +105,34 @@ public final class FirstFew {
         #endif
     }
 
+    private static let externalIdKey = "com.firstfew.sdk.external_id"
+
+    /// Bind the app's own account id to this FirstFew user ("identify" / aliasing).
+    /// Call it after login (and again whenever the logged-in account changes):
+    /// ```swift
+    /// FirstFew.identify("your-account-id")
+    /// ```
+    /// Every event reported afterwards carries it as `external_id`, so the FirstFew
+    /// console can be searched by your own user ids, multiple devices of the same
+    /// account are grouped, and server-side reporting can address the user by the
+    /// id your backend already knows. Pass `nil` on logout to stop attaching it
+    /// (the binding already recorded server-side is kept).
+    public static func identify(_ externalId: String?) {
+        let trimmed = externalId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty, trimmed.count <= 128 {
+            let changed = UserDefaults.standard.string(forKey: externalIdKey) != trimmed
+            UserDefaults.standard.set(trimmed, forKey: externalIdKey)
+            // Deliver the binding right away via the reserved `identify` event —
+            // otherwise it would wait for the next business event, which can be
+            // long after a login. Durable queue + retries apply as usual.
+            if changed {
+                shared.work.async { shared.enqueue("identify", value: nil, currency: nil, properties: nil) }
+            }
+        } else {
+            UserDefaults.standard.removeObject(forKey: externalIdKey)
+        }
+    }
+
     private func enqueue(_ eventId: String, value: Double?, currency: String?, properties: [String: Any]?) {
         guard let identity, let queue else { return }
         var event: [String: Any] = [
@@ -98,6 +148,9 @@ public final class FirstFew {
             "sdk": "ios/\(Self.sdkVersion)",
         ]
         if !Context.country.isEmpty { event["country"] = Context.country }
+        if let ext = UserDefaults.standard.string(forKey: Self.externalIdKey), !ext.isEmpty {
+            event["external_id"] = ext
+        }
         if let value { event["value"] = value }
         if let currency { event["currency"] = currency }
         if let properties, JSONSerialization.isValidJSONObject(properties) {

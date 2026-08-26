@@ -33,6 +33,11 @@ final class Identity {
         }
     }
 
+    /// Read-only lookup of the stored user id. Unlike `init`, this never creates an
+    /// id and never touches the install marker, so calling it at any time (even
+    /// before `configure`) cannot break reinstall detection.
+    static func existingUserID() -> String? { keychainRead() }
+
     private static func keychainRead() -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
