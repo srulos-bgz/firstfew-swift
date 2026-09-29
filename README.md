@@ -17,6 +17,11 @@ That single call automatically handles:
 - Reinstall detection (`app_reinstall`; user identity survives reinstalls via Keychain)
 - Device context: model, OS version, app version, language, region, timezone offset
 - Apple Search Ads attribution reporting (AdServices token, iOS 14.3+)
+- StoreKit transaction reporting (iOS 15+): the device's purchase history, one row per
+  original transaction, is sent after launch, on return to foreground and whenever StoreKit
+  delivers a new transaction — purchases that carry no `appAccountToken` (offer codes
+  redeemed on the App Store, family sharing, restores) are still attributed to the user,
+  and orders show up in the console even without App Store Server Notifications
 
 React to Apple Search Ads attribution (optional — reporting itself is automatic):
 

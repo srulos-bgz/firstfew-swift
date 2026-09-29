@@ -11,7 +11,10 @@ import UIKit
 /// ```
 /// After that, everything below happens automatically: `app_launch` on every launch
 /// and return to foreground, reinstall detection (`app_reinstall`), device model /
-/// OS version / app version / language / region context, and ASA attribution reporting.
+/// OS version / app version / language / region context, ASA attribution reporting,
+/// and (iOS 15+) StoreKit transaction reporting — the device's own purchase history
+/// is sent so purchases made outside the app (offer codes redeemed on the App Store,
+/// family sharing, restores) are still tied to this user.
 /// Report business events with `FirstFew.track("event_id")`.
 ///
 /// The token is write-only (it can submit data, never read anything back). All
@@ -20,7 +23,7 @@ import UIKit
 public final class FirstFew {
     /// SDK version, sent with every event as `sdk: "ios/x.y.z"` — lets the server
     /// tell SDK traffic from raw-API traffic and track version adoption.
-    public static let sdkVersion = "0.1.0"
+    public static let sdkVersion = "0.2.0"
 
     private static let shared = FirstFew()
     private let work = DispatchQueue(label: "com.firstfew.sdk")
@@ -93,6 +96,9 @@ public final class FirstFew {
             enqueue("app_reinstall", value: nil, currency: nil, properties: nil)
         }
         AttributionReporter.reportIfNeeded(userID: identity.userID, token: token, baseURL: baseURL)
+        // StoreKit transaction history (iOS 15+): ties purchases without an
+        // appAccountToken (offer codes, family sharing, restores) to this user.
+        TransactionReporter.start(userID: identity.userID, token: token, baseURL: baseURL)
         #if canImport(UIKit)
         // Returning to the foreground counts as a launch too (active users = distinct
         // users with an app_launch that day).
