@@ -15,6 +15,8 @@ import UIKit
 /// and (iOS 15+) StoreKit transaction reporting — the device's own purchase history
 /// is sent so purchases made outside the app (offer codes redeemed on the App Store,
 /// family sharing, restores) are still tied to this user.
+/// Add `push: true` to `configure` and the device's remote-push token is collected
+/// as well, with no further code.
 /// Report business events with `FirstFew.track("event_id")`.
 ///
 /// The token is write-only (it can submit data, never read anything back). All
@@ -23,7 +25,7 @@ import UIKit
 public final class FirstFew {
     /// SDK version, sent with every event as `sdk: "ios/x.y.z"` — lets the server
     /// tell SDK traffic from raw-API traffic and track version adoption.
-    public static let sdkVersion = "0.2.0"
+    public static let sdkVersion = "0.3.0"
 
     private static let shared = FirstFew()
     private let work = DispatchQueue(label: "com.firstfew.sdk")
@@ -35,8 +37,32 @@ public final class FirstFew {
 
     /// Call once at app startup. `token` comes from FirstFew product settings
     /// (data services); `baseURL` is the ingest host.
-    public static func configure(token: String, baseURL: URL) {
+    ///
+    /// Pass `push: true` to collect the device's remote-push (APNs) token with no
+    /// further code: the SDK registers the app for remote notifications and picks
+    /// the token up from the app delegate, where an existing handler keeps working.
+    /// The app needs the Push Notifications capability. No permission prompt is
+    /// shown — asking the user to allow notifications stays with the app. Off by
+    /// default; an app that prefers the SDK not to touch its delegate can forward
+    /// the token with `setPushToken(_:)` instead.
+    public static func configure(token: String, baseURL: URL, push: Bool = false) {
+        #if canImport(UIKit) && !os(watchOS)
+        if push { PushRegistration.enable() }
+        #endif
         shared.work.async { shared.start(token: token, baseURL: baseURL) }
+    }
+
+    /// Report the APNs device token yourself — the alternative to `push: true`:
+    /// ```swift
+    /// func application(_ application: UIApplication,
+    ///                  didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    ///     FirstFew.setPushToken(deviceToken)
+    /// }
+    /// ```
+    /// It may be called before `configure`; the token is reported once the SDK
+    /// starts, and again whenever it or the notification permission changes.
+    public static func setPushToken(_ deviceToken: Data) {
+        PushTokenReporter.update(deviceToken: deviceToken)
     }
 
     /// Receive the Apple Search Ads attribution result. The completion runs on the
@@ -99,6 +125,8 @@ public final class FirstFew {
         // StoreKit transaction history (iOS 15+): ties purchases without an
         // appAccountToken (offer codes, family sharing, restores) to this user.
         TransactionReporter.start(userID: identity.userID, token: token, baseURL: baseURL)
+        // Remote-push token: reports whatever `push: true` or setPushToken delivers.
+        PushTokenReporter.start(userID: identity.userID, token: token, baseURL: baseURL)
         #if canImport(UIKit)
         // Returning to the foreground counts as a launch too (active users = distinct
         // users with an app_launch that day).

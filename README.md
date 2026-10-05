@@ -34,6 +34,36 @@ FirstFew.attribution { result in
 }
 ```
 
+Collect the remote-push (APNs) device token — one more parameter, no other code:
+
+```swift
+FirstFew.configure(token: "<your ingest token>", baseURL: url, push: true)
+```
+
+With `push: true` the SDK registers the app for remote notifications and picks the
+device token up by itself. The token is reported together with the APNs environment
+(sandbox / production) and the user's notification permission, and again whenever
+either changes. A `didRegisterForRemoteNotificationsWithDeviceToken` handler the app
+already has — its own or another SDK's — keeps receiving the token, and a SwiftUI app
+needs no app delegate for this. Two things stay with you:
+
+- Add the **Push Notifications** capability to the app target (Signing & Capabilities).
+  Without it the system rejects the registration and no token is collected.
+- Asking the user to allow notifications. The SDK never shows the permission prompt;
+  a token is collected either way, but a notification sent to it is only shown once
+  the user has allowed notifications.
+
+`push` is off by default, and then the SDK does not touch the app delegate at all. To
+collect the token without the SDK hooking the delegate, leave it off and forward the
+token yourself:
+
+```swift
+func application(_ application: UIApplication,
+                 didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    FirstFew.setPushToken(deviceToken)
+}
+```
+
 Business events are one line each:
 
 ```swift
@@ -68,5 +98,5 @@ Notes:
 
 - The token is **write-only**: it can submit data, never read anything back.
 - Events are queued on disk and retried with backoff; a `200` is the only dequeue signal. Tracking is fire-and-forget and never blocks or breaks the host app.
-- No IDFA, no ATT prompt, no permission dialogs. Ships with a privacy manifest (`PrivacyInfo.xcprivacy`). Declare **User ID** and **Product Interaction** (analytics, not tracking) in your App Store privacy label.
+- No IDFA, no ATT prompt, no permission dialogs. Ships with a privacy manifest (`PrivacyInfo.xcprivacy`). Declare **User ID** and **Product Interaction** (analytics, not tracking) in your App Store privacy label; if you collect the push token, also **Device ID** (app functionality, not tracking).
 - iOS 14+.
