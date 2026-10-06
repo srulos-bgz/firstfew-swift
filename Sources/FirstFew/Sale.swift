@@ -26,7 +26,8 @@ extension FirstFew {
         public let salePrice: Decimal
         /// ISO 4217 currency code of both prices.
         public let currency: String
-        /// The discount in this region, rounded down (never overstated).
+        /// The discount set up in the console, e.g. 20 for 20% off. Every region's sale
+        /// price is at least this much off.
         public let discountPercent: Int
         /// The regular price formatted the way StoreKit formats this product's price.
         public let regularDisplayPrice: String
