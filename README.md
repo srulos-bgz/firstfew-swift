@@ -64,6 +64,19 @@ func application(_ application: UIApplication,
 }
 ```
 
+Temporary sales (in-app purchases) set up in the FirstFew console — the regular price and
+the end date StoreKit does not return:
+
+```swift
+// e.g. in the paywall's .task
+let sales = await FirstFew.sales()
+
+// product: the StoreKit Product your app has already loaded
+if let sale = sales.sale(for: product) {
+    // sale.regularDisplayPrice, product.displayPrice, sale.discountPercent, sale.endsAt
+}
+```
+
 Business events are one line each:
 
 ```swift

@@ -18,6 +18,9 @@ import UIKit
 /// Add `push: true` to `configure` and the device's remote-push token is collected
 /// as well, with no further code.
 /// Report business events with `FirstFew.track("event_id")`.
+/// `FirstFew.sales()` tells a purchase screen about the temporary sales set up in the
+/// console for the device's App Store region: the regular price and the end date
+/// StoreKit does not provide. It needs no products, so it runs alongside loading them.
 /// Pass the URLs the app is opened with to `FirstFew.handle(_:)` and links in the
 /// app's FirstFew scheme (`ff<App Store id>://…`) are handled: they can carry the
 /// device's FirstFew id on to a web page or another app.
@@ -28,7 +31,7 @@ import UIKit
 public final class FirstFew {
     /// SDK version, sent with every event as `sdk: "ios/x.y.z"` — lets the server
     /// tell SDK traffic from raw-API traffic and track version adoption.
-    public static let sdkVersion = "0.4.0"
+    public static let sdkVersion = "0.5.0"
 
     private static let shared = FirstFew()
     private let work = DispatchQueue(label: "com.firstfew.sdk")
@@ -163,6 +166,8 @@ public final class FirstFew {
         TransactionReporter.start(userID: identity.userID, token: token, baseURL: baseURL)
         // Remote-push token: reports whatever `push: true` or setPushToken delivers.
         PushTokenReporter.start(userID: identity.userID, token: token, baseURL: baseURL)
+        // Temporary sales of the device's App Store region (FirstFew.sales()).
+        SaleStore.start(token: token, baseURL: baseURL)
         // A link handed to `handle` before `configure` waited for the identity.
         if let link = pendingLink {
             pendingLink = nil
