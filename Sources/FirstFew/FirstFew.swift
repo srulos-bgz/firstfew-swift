@@ -18,6 +18,9 @@ import UIKit
 /// Add `push: true` to `configure` and the device's remote-push token is collected
 /// as well, with no further code.
 /// Report business events with `FirstFew.track("event_id")`.
+/// Pass the URLs the app is opened with to `FirstFew.handle(_:)` and links in the
+/// app's FirstFew scheme (`ff<App Store id>://…`) are handled: they can carry the
+/// device's FirstFew id on to a web page or another app.
 ///
 /// The token is write-only (it can submit data, never read anything back). All
 /// reporting is fire-and-forget with a durable on-disk queue and backoff retries —
@@ -25,13 +28,15 @@ import UIKit
 public final class FirstFew {
     /// SDK version, sent with every event as `sdk: "ios/x.y.z"` — lets the server
     /// tell SDK traffic from raw-API traffic and track version adoption.
-    public static let sdkVersion = "0.3.0"
+    public static let sdkVersion = "0.4.0"
 
     private static let shared = FirstFew()
     private let work = DispatchQueue(label: "com.firstfew.sdk")
     private var queue: EventQueue?
     private var identity: Identity?
     private var configured = false
+    private var pendingLink: Link?
+    private var ingest: (token: String, baseURL: URL)?
 
     private init() {}
 
@@ -63,6 +68,36 @@ public final class FirstFew {
     /// starts, and again whenever it or the notification permission changes.
     public static func setPushToken(_ deviceToken: Data) {
         PushTokenReporter.update(deviceToken: deviceToken)
+    }
+
+    /// Handle a URL the app was opened with. Pass every URL; the SDK claims the
+    /// ones in the app's FirstFew scheme — `ff<App Store id>://…`, registered under
+    /// URL Types in Info.plist — and returns `true` for those, `false` for any
+    /// other URL (handle those as usual).
+    /// ```swift
+    /// // UIKit (app delegate)
+    /// func application(_ app: UIApplication, open url: URL,
+    ///                  options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
+    ///     if FirstFew.handle(url) { return true }
+    ///     …
+    /// }
+    /// // SwiftUI
+    /// .onOpenURL { url in FirstFew.handle(url) }
+    /// ```
+    /// A link `ff<id>://forward?forwardUrl=<target>&app_version&language` opens
+    /// `<target>` — an https page or another app's URL scheme — with
+    /// `ff_id=<FirstFew user id>` and the device values the link names appended
+    /// to its query under fixed `ff_` keys, provided the target is on the product's
+    /// allowlist in the FirstFew console (checked with the server right before
+    /// opening; nothing happens offline); see `Link`. A link without
+    /// `forwardUrl` just opens the app. Every handled link is reported as the
+    /// reserved event `link_open`. May be called before `configure`; the link is
+    /// then handled once the SDK starts.
+    @discardableResult
+    public static func handle(_ url: URL) -> Bool {
+        guard let link = Link(url: url) else { return false }
+        shared.work.async { shared.open(link) }
+        return true
     }
 
     /// Receive the Apple Search Ads attribution result. The completion runs on the
@@ -112,6 +147,7 @@ public final class FirstFew {
     private func start(token: String, baseURL: URL) {
         guard !configured else { return }
         configured = true
+        ingest = (token, baseURL)
         let identity = Identity()
         self.identity = identity
         self.queue = EventQueue(token: token, baseURL: baseURL)
@@ -127,6 +163,11 @@ public final class FirstFew {
         TransactionReporter.start(userID: identity.userID, token: token, baseURL: baseURL)
         // Remote-push token: reports whatever `push: true` or setPushToken delivers.
         PushTokenReporter.start(userID: identity.userID, token: token, baseURL: baseURL)
+        // A link handed to `handle` before `configure` waited for the identity.
+        if let link = pendingLink {
+            pendingLink = nil
+            open(link)
+        }
         #if canImport(UIKit)
         // Returning to the foreground counts as a launch too (active users = distinct
         // users with an app_launch that day).
@@ -164,6 +205,31 @@ public final class FirstFew {
             }
         } else {
             UserDefaults.standard.removeObject(forKey: externalIdKey)
+        }
+    }
+
+    /// Report a FirstFew link and open its forward target once the server has
+    /// confirmed the target is allowed. Runs on `work`; the identity is needed
+    /// for `id`, so a link arriving before `configure` waits (the identity must
+    /// not be created here — that would hide a reinstall).
+    private func open(_ link: Link) {
+        guard let identity, let ingest else {
+            pendingLink = link
+            return
+        }
+        let fields = Link.Fields(id: identity.userID,
+                                 externalID: UserDefaults.standard.string(forKey: Self.externalIdKey))
+        guard let target = link.target(fields) else {
+            enqueue(Link.eventID, value: nil, currency: nil, properties: nil)
+            return
+        }
+        Link.check(target, token: ingest.token, baseURL: ingest.baseURL) { [weak self] allowed in
+            guard let self else { return }
+            self.work.async {
+                self.enqueue(Link.eventID, value: nil, currency: nil,
+                             properties: link.eventProperties(target, allowed: allowed))
+            }
+            if allowed == true { Link.open(target) }
         }
     }
 

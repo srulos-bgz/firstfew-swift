@@ -17,6 +17,11 @@ let package = Package(
             name: "FirstFew",
             path: "Sources/FirstFew",
             resources: [.process("PrivacyInfo.xcprivacy")]
-        )
+        ),
+        .testTarget(
+            name: "FirstFewTests",
+            dependencies: ["FirstFew"],
+            path: "Tests/FirstFewTests"
+        ),
     ]
 )
