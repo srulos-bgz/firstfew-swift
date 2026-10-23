@@ -11,7 +11,7 @@ import UIKit
 /// ```
 /// After that, everything below happens automatically: `app_launch` on every launch
 /// and return to foreground, reinstall detection (`app_reinstall`), device model /
-/// OS version / app version / language / region context, ASA attribution reporting,
+/// OS version / app version / language / region / IDFV context, ASA attribution reporting,
 /// and (iOS 15+) StoreKit transaction reporting — the device's own purchase history
 /// is sent so purchases made outside the app (offer codes redeemed on the App Store,
 /// family sharing, restores) are still tied to this user.
@@ -31,7 +31,7 @@ import UIKit
 public final class FirstFew {
     /// SDK version, sent with every event as `sdk: "ios/x.y.z"` — lets the server
     /// tell SDK traffic from raw-API traffic and track version adoption.
-    public static let sdkVersion = "0.5.0"
+    public static let sdkVersion = "0.6.0"
 
     private static let shared = FirstFew()
     private let work = DispatchQueue(label: "com.firstfew.sdk")
@@ -253,6 +253,7 @@ public final class FirstFew {
             "sdk": "ios/\(Self.sdkVersion)",
         ]
         if !Context.country.isEmpty { event["country"] = Context.country }
+        if let idfv = Context.idfv { event["idfv"] = idfv }
         if let ext = UserDefaults.standard.string(forKey: Self.externalIdKey), !ext.isEmpty {
             event["external_id"] = ext
         }

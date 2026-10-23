@@ -15,7 +15,7 @@ That single call automatically handles:
 
 - `app_launch` on every launch and return to foreground (new / active user stats)
 - Reinstall detection (`app_reinstall`; user identity survives reinstalls via Keychain)
-- Device context: model, OS version, app version, language, region, timezone offset
+- Device context: model, OS version, app version, language, region, timezone offset, IDFV (`identifierForVendor`)
 - Apple Search Ads attribution reporting (AdServices token, iOS 14.3+)
 - StoreKit transaction reporting (iOS 15+): the device's purchase history, one row per
   original transaction, is sent after launch, on return to foreground and whenever StoreKit

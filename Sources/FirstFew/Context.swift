@@ -4,9 +4,23 @@ import UIKit
 #endif
 
 /// Device context, attached to every event. Everything here is collected without
-/// any permission prompt — no IDFA, no IDFV, no ATT. The region comes from the
-/// device's locale settings (no IP geolocation).
+/// any permission prompt — no IDFA, no ATT. The region comes from the device's
+/// locale settings (no IP geolocation).
 enum Context {
+    /// Apple's identifierForVendor (IDFV): one value for all of this developer's apps
+    /// on the device, reset when the last of them is uninstalled. Read again for every
+    /// event rather than cached — the system returns nil for a short while after a
+    /// restart (before first unlock), and the next event then picks it up.
+    static var idfv: String? {
+        #if canImport(UIKit) && !os(watchOS)
+        guard let id = UIDevice.current.identifierForVendor?.uuidString,
+              !id.isEmpty, id != "00000000-0000-0000-0000-000000000000" else { return nil }
+        return id
+        #else
+        return nil
+        #endif
+    }
+
     /// Hardware model identifier, e.g. "iPhone17,2" ("arm64"/"x86_64" on simulator).
     static let deviceModel: String = {
         var sys = utsname()
