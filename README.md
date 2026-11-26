@@ -153,6 +153,40 @@ apart from whatever parameters the target already has. Every handled link is
 reported as the reserved event `link_open` (with the target's scheme and host as
 `to`; never its query).
 
+With SDK 0.7.0+ on iOS 15+, append `&iap` to include the device's verified
+StoreKit purchase records. The target receives one query parameter, `ff_iap`,
+whose value is a JSON object with a `transactions` array. It contains the same
+rows as the SDK's transaction report, one per original transaction, including
+expired subscriptions and revoked purchases. The receiver decides which
+entitlements are still valid.
+
+```text
+ff6478123456://forward?forwardUrl=https://example.com/support&iap
+```
+
+For example, a device with one expired subscription might send this `ff_iap` value
+(shown after URL decoding):
+
+```json
+{
+  "transactions": [{
+    "original_transaction_id": "100000001",
+    "transaction_id": "100000003",
+    "product_id": "pro_monthly",
+    "product_type": "auto_renewable",
+    "original_purchased_at": "2026-08-01T10:00:00Z",
+    "purchased_at": "2026-10-01T10:00:00Z",
+    "expires_at": "2026-11-01T10:00:00Z",
+    "ownership": "purchased",
+    "is_upgraded": false,
+    "environment": "Production"
+  }]
+}
+```
+
+A supported device with no verified purchases sends `{"transactions":[]}`.
+Links without `&iap` and devices running iOS 14 omit `ff_iap`.
+
 Anyone can craft a link in this scheme (this SDK is open source), so the app only
 forwards to addresses on the product's **FirstFew Forward allowlist** in the
 FirstFew console (product settings ▸ product management: domains such as
@@ -175,8 +209,7 @@ returns `true`; the values are read straight from the URL — `ff_id` is the sen
 FirstFew user id, the other `ff_*` parameters are the device values the sender took along:
 
 ```swift
-// Sender: ff6478123456://forward?forwardUrl=ff1122334455://open&language
-//   → opens ff1122334455://open?ff_id=<sender's FirstFew user id>&ff_language=zh-Hans-CN
+// Sender: ff6478123456://forward?forwardUrl=ff1122334455://open&language&iap
 
 // Receiver (ff1122334455)
 .onOpenURL { url in
@@ -184,6 +217,11 @@ FirstFew user id, the other `ff_*` parameters are the device values the sender t
     let params = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
     let senderId = params.first { $0.name == "ff_id" }?.value
     let language = params.first { $0.name == "ff_language" }?.value
+    if let raw = params.first(where: { $0.name == "ff_iap" })?.value,
+       let object = (try? JSONSerialization.jsonObject(with: Data(raw.utf8))) as? [String: Any],
+       let transactions = object["transactions"] as? [[String: Any]] {
+        // Inspect the transactions for this user.
+    }
 }
 ```
 

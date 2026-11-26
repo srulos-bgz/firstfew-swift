@@ -10,6 +10,11 @@ final class LinkTests: XCTestCase {
         (URLComponents(url: url!, resolvingAgainstBaseURL: false)!.queryItems ?? []).map { ($0.name, $0.value) }
     }
 
+    private func purchaseSnapshot(_ target: URL) throws -> NSDictionary {
+        let value = try XCTUnwrap(items(target).first { $0.0 == "ff_iap" }?.1)
+        return try XCTUnwrap(JSONSerialization.jsonObject(with: Data(value.utf8)) as? NSDictionary)
+    }
+
     func testClaimsOnlyFirstFewSchemes() {
         XCTAssertTrue(Link.isFirstFewLink(URL(string: "ff6478123456://forward")!))
         XCTAssertTrue(Link.isFirstFewLink(URL(string: "FF6478123456://")!))
@@ -71,6 +76,53 @@ final class LinkTests: XCTestCase {
         f.externalID = nil
         let link = Link(url: URL(string: "ff1://forward?forwardUrl=https://x.com&external_id")!)!
         XCTAssertEqual(items(link.target(f)).last?.1, "")
+    }
+
+    func testIAPForwardsReportedRowsTogetherIncludingExpiredAndRevokedPurchases() throws {
+        let link = Link(url: URL(string: "ff1://forward?forwardUrl=https://x.com&iap&country&IAP")!)!
+        let rows: [[String: Any]] = [
+            [
+                "original_transaction_id": "100000001", "transaction_id": "100000003",
+                "product_id": "monthly+pro&family#50% 特典", "product_type": "auto_renewable",
+                "original_purchased_at": "2024-01-01T00:00:00Z", "purchased_at": "2024-02-01T00:00:00Z",
+                "expires_at": "2024-03-01T00:00:00Z", "ownership": "family_shared",
+                "is_upgraded": true, "environment": "Sandbox",
+            ],
+            [
+                "original_transaction_id": "100000008", "transaction_id": "100000008",
+                "product_id": "lifetime", "product_type": "non_consumable",
+                "original_purchased_at": "2024-01-01T00:00:00Z", "purchased_at": "2024-01-01T00:00:00Z",
+                "revoked_at": "2024-01-02T00:00:00Z", "ownership": "purchased", "is_upgraded": false,
+            ],
+        ]
+        let target = try XCTUnwrap(link.target(fields, transactions: rows))
+        XCTAssertEqual(items(target).map { $0.0 }, ["ff_id", "ff_iap", "ff_country"])
+        // Web receivers using URLSearchParams interpret a literal '+' as a space.
+        XCTAssertFalse(target.absoluteString.contains("+"))
+        XCTAssertEqual(try purchaseSnapshot(target), ["transactions": rows] as NSDictionary)
+    }
+
+    func testIAPDistinguishesAnEmptyPurchaseHistoryFromAnUnavailableHistory() throws {
+        let link = Link(url: URL(string: "ff1://forward?forwardUrl=otherapp://open&iap")!)!
+        let empty = try XCTUnwrap(link.target(fields, transactions: []))
+        XCTAssertEqual(try purchaseSnapshot(empty), ["transactions": []] as NSDictionary)
+
+        let unavailable = try XCTUnwrap(link.target(fields, transactions: nil))
+        XCTAssertEqual(items(unavailable).map { $0.0 }, ["ff_id"])
+    }
+
+    func testIAPUsesOnlyTheSDKValueWhenRequested() throws {
+        let input = "ff1://forward?forwardUrl=https%3A%2F%2Fx.com%2Fp%3Fff_iap%3Dold%26q%3D1%26ff_iap%3Dother%23top"
+        let rows = [["product_id": "pro"]]
+        let noFlag = Link(url: URL(string: input)!)!
+        let target = try XCTUnwrap(noFlag.target(fields, transactions: rows))
+        XCTAssertEqual(items(target).map { $0.0 }, ["q", "ff_id"])
+        XCTAssertEqual(target.fragment, "top")
+
+        let optedIn = Link(url: URL(string: input + "&iap=injected")!)!
+        let forwarded = try XCTUnwrap(optedIn.target(fields, transactions: rows))
+        XCTAssertEqual(items(forwarded).map { $0.0 }, ["q", "ff_id", "ff_iap"])
+        XCTAssertEqual(try purchaseSnapshot(forwarded), ["transactions": rows] as NSDictionary)
     }
 
     func testIdIsAlwaysTheDevicesOwnAndSentOnce() {

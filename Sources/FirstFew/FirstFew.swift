@@ -31,7 +31,7 @@ import UIKit
 public final class FirstFew {
     /// SDK version, sent with every event as `sdk: "ios/x.y.z"` — lets the server
     /// tell SDK traffic from raw-API traffic and track version adoption.
-    public static let sdkVersion = "0.6.0"
+    public static let sdkVersion = "0.7.0"
 
     private static let shared = FirstFew()
     private let work = DispatchQueue(label: "com.firstfew.sdk")
@@ -90,7 +90,8 @@ public final class FirstFew {
     /// A link `ff<id>://forward?forwardUrl=<target>&app_version&language` opens
     /// `<target>` — an https page or another app's URL scheme — with
     /// `ff_id=<FirstFew user id>` and the device values the link names appended
-    /// to its query under fixed `ff_` keys, provided the target is on the product's
+    /// to its query under fixed `ff_` keys. On iOS 15+, adding `&iap` includes the
+    /// client's purchase records in one `ff_iap` JSON value. The target must be on the product's
     /// allowlist in the FirstFew console (checked with the server right before
     /// opening; nothing happens offline); see `Link`. A link without
     /// `forwardUrl` just opens the app. Every handled link is reported as the
@@ -234,7 +235,19 @@ public final class FirstFew {
                 self.enqueue(Link.eventID, value: nil, currency: nil,
                              properties: link.eventProperties(target, allowed: allowed))
             }
-            if allowed == true { Link.open(target) }
+            guard allowed == true else { return }
+            #if canImport(StoreKit)
+            if link.requested.contains(Link.iapParam), #available(iOS 15, macOS 12, tvOS 15, watchOS 8, *) {
+                Task {
+                    let records = await TransactionReporter.purchaseRecords()
+                    if let targetWithIAP = link.target(fields, transactions: records) {
+                        Link.open(targetWithIAP)
+                    }
+                }
+                return
+            }
+            #endif
+            Link.open(target)
         }
     }
 

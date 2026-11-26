@@ -83,12 +83,14 @@ enum TransactionReporter {
 
     #if canImport(StoreKit)
     @available(iOS 15, macOS 12, tvOS 15, watchOS 8, *)
-    private static func collectAndReport(userID: String, token: String, baseURL: URL) async {
+    static func purchaseRecords() async -> [[String: Any]] {
         // One row per original transaction: the newest transaction of a subscription
         // represents it (latest expiry / revocation), the first purchase date is kept
         // separately so FirstFew knows when the customer originally bought.
         var rows: [UInt64: [String: Any]] = [:]
         var newestID: [UInt64: UInt64] = [:]
+        let iso8601 = ISO8601DateFormatter()
+        iso8601.formatOptions = [.withInternetDateTime]
         for await result in Transaction.all {
             guard case .verified(let t) = result else { continue }
             if let seen = newestID[t.originalID], seen >= t.id { continue }
@@ -115,7 +117,12 @@ enum TransactionReporter {
             }
             rows[t.originalID] = row
         }
-        let list = rows.keys.sorted().compactMap { rows[$0] }
+        return rows.keys.sorted().compactMap { rows[$0] }
+    }
+
+    @available(iOS 15, macOS 12, tvOS 15, watchOS 8, *)
+    private static func collectAndReport(userID: String, token: String, baseURL: URL) async {
+        let list = await purchaseRecords()
         guard JSONSerialization.isValidJSONObject(list),
               let fpData = try? JSONSerialization.data(withJSONObject: list, options: [.sortedKeys]) else { return }
         let fingerprint = SHA256.hash(data: fpData).map { String(format: "%02x", $0) }.joined()
@@ -172,10 +179,4 @@ enum TransactionReporter {
         }
     }
     #endif
-
-    private static let iso8601: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
 }

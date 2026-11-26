@@ -17,7 +17,9 @@ import UIKit
 /// with `ff_id=<FirstFew user id>` appended to its query, followed by each device
 /// value the link lists by name, under that name with an `ff_` prefix:
 /// `ff_external_id`, `ff_app_version`, `ff_os_version`, `ff_device_model`,
-/// `ff_language`, `ff_country`. The link only says which values to take; the keys
+/// `ff_language`, `ff_country`. On iOS 15+, `&iap` adds `ff_iap`, a JSON object
+/// containing the device's reported StoreKit purchase records under `transactions`.
+/// The link only says which values to take; the keys
 /// are fixed, and the prefix keeps them apart from the target's own parameters.
 /// A link without `forwardUrl` just opens the app.
 ///
@@ -36,6 +38,7 @@ struct Link {
     /// Every value lands on the target under `ff_<name>`.
     static let keyPrefix = "ff_"
     private static let idParam = "id"
+    static let iapParam = "iap"
 
     let url: URL
     /// The `forwardUrl` target as given, nil when the link only opens the app.
@@ -65,7 +68,7 @@ struct Link {
 
     /// The device values a link can take, each sent under its own fixed name.
     struct Fields {
-        static let names: Set<String> = ["id", "external_id", "app_version", "os_version", "device_model", "language", "country"]
+        static let names: Set<String> = ["id", "external_id", "app_version", "os_version", "device_model", "language", "country", Link.iapParam]
 
         var id: String
         var externalID: String?
@@ -92,16 +95,29 @@ struct Link {
     /// The address to open: the target with `id` and the requested device values
     /// appended to its query. Nil when the link does not forward, the target does
     /// not parse, or it points back at this very scheme (a loop).
-    func target(_ fields: Fields) -> URL? {
+    func target(_ fields: Fields, transactions: [[String: Any]]? = nil) -> URL? {
         guard let forwardTarget, var comps = URLComponents(string: forwardTarget),
               let scheme = comps.scheme, !scheme.isEmpty,
               scheme.lowercased() != url.scheme?.lowercased() else { return nil }
-        var items = comps.queryItems ?? []
+        let iapKey = Self.keyPrefix + Self.iapParam
+        var items = (comps.queryItems ?? []).filter { $0.name != iapKey }
         items.append(URLQueryItem(name: Self.keyPrefix + Self.idParam, value: fields.id))
         for name in requested {
-            items.append(URLQueryItem(name: Self.keyPrefix + name, value: fields.value(named: name)))
+            if name == Self.iapParam {
+                guard let transactions else { continue }
+                guard let json = try? JSONSerialization.data(withJSONObject: ["transactions": transactions],
+                                                              options: [.sortedKeys]) else { return nil }
+                items.append(URLQueryItem(name: iapKey, value: String(decoding: json, as: UTF8.self)))
+            } else {
+                items.append(URLQueryItem(name: Self.keyPrefix + name, value: fields.value(named: name)))
+            }
         }
         comps.queryItems = items
+        // URLSearchParams decodes a literal '+' as a space, including inside JSON strings.
+        if let index = items.firstIndex(where: { $0.name == iapKey }),
+           let encoded = comps.percentEncodedQueryItems?[index].value, encoded.contains("+") {
+            comps.percentEncodedQueryItems?[index].value = encoded.replacingOccurrences(of: "+", with: "%2B")
+        }
         return comps.url
     }
 
